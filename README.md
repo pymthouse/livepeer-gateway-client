@@ -1,10 +1,21 @@
 # livepeer-gateway-client
 
-Python client for Livepeer inference with **OIDC authentication** (Authlib) and
-**automatic signer JWT refresh** for long-running streams.
+Python client that complements the core [`livepeer-gateway`](https://github.com/livepeer/livepeer-python-gateway)
+transport library with higher-level integration: provider login, OIDC/API-key authentication,
+remote signer usage, and automatic payment refresh for long-running streams.
 
-Depends on upstream [`livepeer-gateway`](https://github.com/livepeer/livepeer-python-gateway)
-(the transport library) via a git-pinned uv source.
+Repository: [github.com/pymthouse/livepeer-gateway-client](https://github.com/pymthouse/livepeer-gateway-client)
+
+## Layout
+
+```
+livepeer_gateway_client/   # this package (import name matches PyPI name)
+examples/                  # runnable scripts
+tests/
+```
+
+Upstream transport stays in the **`livepeer-gateway`** dependency (`livepeer_gateway` import).
+This repo is **`livepeer-gateway-client`** (`livepeer_gateway_client` import).
 
 ## Install
 
@@ -17,14 +28,38 @@ Open this repo as the VS Code/Cursor workspace root so `.vscode/settings.json` r
 
 ## Auth modes
 
-### OIDC (interactive)
+### Raw API key (webhook-validated signer)
+
+Pass the long-lived key directly; your signer's identity webhook validates it on each
+payment call (no JWT exchange, no client-side refresh):
 
 ```python
-from livepeer_gateway_client import SignerTokenProvider, LivepeerClient
+from livepeer_gateway_client import LivepeerClient
 from livepeer_gateway.lv2v import StartJobRequest
 
-provider = SignerTokenProvider(oidc_base_url="https://pymthouse.example.com")
-headers = provider.refresh()
+client = LivepeerClient(
+    model_id="streamdiffusion-sdxl",
+    signer_url="http://localhost:8081",
+    signer_headers={"Authorization": "Bearer sk_demo_local_key"},
+    discovery_url="https://discovery.example.com/v1/discovery/raw",
+)
+await client.connect(StartJobRequest(model_id="streamdiffusion-sdxl"))
+```
+
+### API key exchange (dashboard BFF → short-lived JWT)
+
+Exchange a `pmth_*` key for a `sign:job` JWT; the client re-mints automatically when it
+expires mid-stream:
+
+```python
+from livepeer_gateway_client import LivepeerClient, SignerTokenProvider
+from livepeer_gateway.lv2v import StartJobRequest
+
+provider = SignerTokenProvider(
+    billing_url="https://dashboard.example.com",
+    api_key="pmth_...",
+    client_id="app_...",
+)
 
 client = LivepeerClient(
     model_id="streamdiffusion-sdxl",
@@ -34,24 +69,33 @@ client = LivepeerClient(
 await client.connect(StartJobRequest(model_id="streamdiffusion-sdxl"))
 ```
 
-### API key (non-interactive fast path)
+### OIDC (interactive)
 
 ```python
-provider = SignerTokenProvider(
-    billing_url="https://dashboard.example.com",
-    api_key="pmth_...",
-    client_id="app_...",
-)
-headers = provider.refresh()
-```
+provider = SignerTokenProvider(oidc_base_url="https://pymthouse.example.com")
+provider.refresh()
 
-The provider's `refresh()` is called automatically when the short-lived
-`sign:job` signer JWT expires during the payment loop.
+client = LivepeerClient(
+    model_id="streamdiffusion-sdxl",
+    signer_provider=provider,
+    discovery_url="https://discovery.example.com/v1/discovery/raw",
+)
+await client.connect(StartJobRequest(model_id="streamdiffusion-sdxl"))
+```
 
 ## Example
 
 ```bash
 uv sync --extra examples
+
+# Webhook-validated signer (clearinghouse stack)
+uv run examples/write_frames.py \
+  --signer http://localhost:8081 \
+  --api-key sk_demo_local_key \
+  --discovery "https://discovery.example.com/v1/discovery/raw" \
+  --model streamdiffusion-sdxl
+
+# Dashboard BFF exchange
 uv run examples/write_frames.py \
   --discovery "https://discovery.example.com/v1/discovery/raw" \
   --billing-url http://localhost:3000 \
@@ -59,6 +103,8 @@ uv run examples/write_frames.py \
   --api-key pmth_xxx \
   --model streamdiffusion-sdxl
 ```
+
+VS Code launch configs for both modes are in `.vscode/launch.json`.
 
 ## Development
 

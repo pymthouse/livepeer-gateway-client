@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "livepeer-gateway-client"
 version = "0.1.0"
-description = "Livepeer gateway client with OIDC auth and signer JWT refresh for long-running streams"
+description = "Higher-level Livepeer client: OIDC/API-key auth, remote signer, and payment refresh for long-running streams"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -14,6 +14,11 @@ dependencies = [
   "httpx>=0.28.0",
   "av>=11.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/pymthouse/livepeer-gateway-client"
+Repository = "https://github.com/pymthouse/livepeer-gateway-client"
+Issues = "https://github.com/pymthouse/livepeer-gateway-client/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -28,7 +33,7 @@ examples = [
 livepeer-gateway = { git = "https://github.com/livepeer/livepeer-python-gateway", rev = "cc31b56f2998e64a4c8677d98eb303bcbbd05c5f" }
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/livepeer_gateway_client"]
+packages = ["livepeer_gateway_client"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
