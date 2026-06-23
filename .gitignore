@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+dist/
+*.egg-info/
+
+# Environment
+.env
+.env.*
+
+# IDE
+.DS_Store
+.pytest_cache/
+.ruff_cache/
