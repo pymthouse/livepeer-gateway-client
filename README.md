@@ -46,7 +46,7 @@ client = LivepeerClient(
 await client.connect(StartJobRequest(model_id="streamdiffusion-sdxl"))
 ```
 
-### API key exchange (dashboard BFF → short-lived JWT)
+### API key exchange (PymtHouse signer-session → short-lived JWT)
 
 Exchange a `pmth_*` key for a `sign:job` JWT; the client re-mints automatically when it
 expires mid-stream:
@@ -56,7 +56,7 @@ from livepeer_gateway_client import LivepeerClient, SignerTokenProvider
 from livepeer_gateway.lv2v import StartJobRequest
 
 provider = SignerTokenProvider(
-    billing_url="https://dashboard.example.com",
+    billing_url="https://staging.pymthouse.com",
     api_key="pmth_...",
     client_id="app_...",
 )
@@ -68,6 +68,12 @@ client = LivepeerClient(
 )
 await client.connect(StartJobRequest(model_id="streamdiffusion-sdxl"))
 ```
+
+`SignerTokenProvider` also supports `pmth_cs_*` M2M secrets with
+`m2m_client_id="m2m_..."` and `external_user_id="..."` (OIDC client
+credentials exchange for user-scoped minting). The token response includes
+`signer_url` in the same `SignerSession` envelope as the API-key path.
+You can also pass `m2m_audience` when required by the issuer.
 
 ### OIDC (interactive)
 
@@ -95,12 +101,22 @@ uv run examples/write_frames.py \
   --discovery "https://discovery.example.com/v1/discovery/raw" \
   --model streamdiffusion-sdxl
 
-# Dashboard BFF exchange
+# PymtHouse signer-session exchange (pmth_* API key)
 uv run examples/write_frames.py \
   --discovery "https://discovery.example.com/v1/discovery/raw" \
-  --billing-url http://localhost:3000 \
+  --billing-url https://staging.pymthouse.com \
   --client-id app_xxx \
   --api-key pmth_xxx \
+  --model streamdiffusion-sdxl
+
+# PymtHouse M2M mint (pmth_cs_* client secret)
+uv run examples/write_frames.py \
+  --discovery "https://discovery.example.com/v1/discovery/raw" \
+  --billing-url https://staging.pymthouse.com \
+  --client-id app_xxx \
+  --m2m-client-id m2m_xxx \
+  --external-user-id user_123 \
+  --api-key pmth_cs_xxx \
   --model streamdiffusion-sdxl
 ```
 

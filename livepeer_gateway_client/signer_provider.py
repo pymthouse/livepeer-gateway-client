@@ -2,14 +2,18 @@ from __future__ import annotations
 
 from livepeer_gateway.errors import LivepeerGatewayError
 
-from .auth_exchange import DEFAULT_SCOPE, exchange_api_key_for_signer
+from .auth_exchange import (
+    DEFAULT_SCOPE,
+    exchange_api_key_for_signer,
+    exchange_client_secret_for_signer,
+)
 
 
 class SignerTokenProvider:
     """Re-exchangeable source of signer auth headers.
 
     Supports OIDC (via :mod:`oidc_auth`) or a non-interactive API-key exchange
-    against the Dashboard BFF. The signer session JWT is short-lived
+    against the PymtHouse issuer. The signer session JWT is short-lived
     (``sign:job`` scope, typically minutes). Long-running streams must re-mint
     it when the signer rejects an expired token.
     """
@@ -21,6 +25,9 @@ class SignerTokenProvider:
         billing_url: str | None = None,
         api_key: str | None = None,
         client_id: str | None = None,
+        m2m_client_id: str | None = None,
+        external_user_id: str | None = None,
+        m2m_audience: str | None = None,
         oidc_client_id: str = "livepeer-sdk",
         oidc_scopes: str = "openid profile gateway",
         oidc_headless: bool = True,
@@ -31,6 +38,9 @@ class SignerTokenProvider:
         self._billing_url = billing_url
         self._api_key = api_key
         self._client_id = client_id
+        self._m2m_client_id = m2m_client_id
+        self._external_user_id = external_user_id
+        self._m2m_audience = m2m_audience
         self._oidc_client_id = oidc_client_id
         self._oidc_scopes = oidc_scopes
         self._oidc_headless = oidc_headless
@@ -42,9 +52,34 @@ class SignerTokenProvider:
     def refresh(self) -> dict[str, str]:
         """Re-mint signer auth headers."""
         if self._billing_url and self._api_key:
+            api_key = self._api_key.strip()
+            if api_key.startswith("pmth_cs_"):
+                if not self._m2m_client_id:
+                    raise LivepeerGatewayError(
+                        "pmth_cs_* requires m2m_client_id for client_credentials exchange"
+                    )
+                if not self._external_user_id:
+                    raise LivepeerGatewayError(
+                        "pmth_cs_* requires external_user_id for user-scoped token mint"
+                    )
+                oidc_base_url = (self._oidc_base_url or "").strip()
+                if not oidc_base_url:
+                    oidc_base_url = f"{self._billing_url.rstrip('/')}/api/v1/oidc"
+                self.signer_url, self.headers = exchange_client_secret_for_signer(
+                    oidc_base_url,
+                    self._m2m_client_id,
+                    api_key,
+                    timeout=self._timeout,
+                    external_user_id=self._external_user_id,
+                    audience=self._m2m_audience,
+                )
+                return self.headers
+
+            if not self._client_id:
+                raise LivepeerGatewayError("pmth_* API key exchange requires client_id")
             self.signer_url, self.headers = exchange_api_key_for_signer(
                 self._billing_url,
-                self._api_key,
+                api_key,
                 client_id=self._client_id,
                 scope=self._scope,
                 timeout=self._timeout,
@@ -67,5 +102,5 @@ class SignerTokenProvider:
             return self.headers
 
         raise LivepeerGatewayError(
-            "SignerTokenProvider requires billing_url+api_key or oidc_base_url"
+            "SignerTokenProvider requires billing_url+api_key (plus client_id for pmth_* or m2m_client_id+external_user_id for pmth_cs_*) or oidc_base_url"
         )

@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import logging
 from fractions import Fraction
 
 import av
@@ -7,7 +8,11 @@ from livepeer_gateway.errors import LivepeerGatewayError
 from livepeer_gateway.lv2v import StartJobRequest
 from livepeer_gateway.media_publish import MediaPublishConfig, VideoOutputConfig
 
-from livepeer_gateway_client import LivepeerClient, SignerTokenProvider
+from livepeer_gateway_client import (
+    LivepeerClient,
+    SignerTokenProvider,
+    format_gateway_error,
+)
 
 DEFAULT_MODEL_ID = "noop"
 
@@ -35,17 +40,32 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--billing-url",
         default=None,
-        help="Dashboard origin for API-key bearer exchange (e.g. https://dashboard.example.com).",
+        help="PymtHouse base URL for API-key signer-session exchange (e.g. https://staging.pymthouse.com).",
     )
     p.add_argument(
         "--client-id",
         default=None,
-        help="PymtHouse public client id (app_*) sent to the API-key exchange.",
+        help="PymtHouse public client id (app_*) for pmth_* API-key signer-session exchange.",
+    )
+    p.add_argument(
+        "--m2m-client-id",
+        default=None,
+        help="PymtHouse confidential client id (m2m_*) for pmth_cs_* client_credentials exchange.",
+    )
+    p.add_argument(
+        "--external-user-id",
+        default=None,
+        help="End-user id required by pmth_cs_* mint (sent as external_user_id).",
+    )
+    p.add_argument(
+        "--m2m-audience",
+        default=None,
+        help="Optional audience for pmth_cs_* mint (e.g. livepeer-remote-signer).",
     )
     p.add_argument(
         "--api-key",
         default=None,
-        help="PymtHouse API key (pmth_*) for non-interactive bearer exchange.",
+        help="PymtHouse credential (pmth_* user API key or pmth_cs_* M2M secret).",
     )
     p.add_argument(
         "--oidc-url",
@@ -72,6 +92,11 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--count", type=int, default=90, help="Number of frames to send (default: 90)."
     )
+    p.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging (equivalent to LOG_LEVEL=DEBUG).",
+    )
     return p.parse_args()
 
 
@@ -87,6 +112,8 @@ def _solid_rgb_frame(
 async def main() -> None:
     args = _parse_args()
     frame_interval = 1.0 / max(1e-6, args.fps)
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    logging.basicConfig(level=log_level, format="%(levelname)s %(name)s: %(message)s")
 
     client = None
     try:
@@ -99,6 +126,9 @@ async def main() -> None:
                 billing_url=args.billing_url,
                 api_key=args.api_key,
                 client_id=args.client_id,
+                m2m_client_id=args.m2m_client_id,
+                external_user_id=args.external_user_id,
+                m2m_audience=args.m2m_audience,
             )
         elif args.oidc_url:
             signer_provider = SignerTokenProvider(oidc_base_url=args.oidc_url)
@@ -135,7 +165,7 @@ async def main() -> None:
             await media.write_frame(frame)
             await asyncio.sleep(frame_interval)
     except LivepeerGatewayError as e:
-        print(f"ERROR: {e}")
+        print(f"ERROR: {format_gateway_error(e)}")
     finally:
         if client is not None:
             await client.disconnect()

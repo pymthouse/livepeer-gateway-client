@@ -36,6 +36,19 @@ def is_signer_auth_error(exc: BaseException) -> bool:
     return '"exp"' in text and "claim" in text
 
 
+def format_gateway_error(exc: LivepeerGatewayError) -> str:
+    """Format gateway errors with orchestrator rejection details when available."""
+    if isinstance(exc, NoOrchestratorAvailableError) and exc.rejections:
+        lines = [str(exc)]
+        for index, rejection in enumerate(exc.rejections[:10], start=1):
+            lines.append(f"  {index}. {rejection.url}: {rejection.reason}")
+        remaining = len(exc.rejections) - 10
+        if remaining > 0:
+            lines.append(f"  ... and {remaining} more")
+        return "\n".join(lines)
+    return str(exc)
+
+
 __all__ = [
     "LivepeerGatewayError",
     "NoOrchestratorAvailableError",
@@ -44,5 +57,6 @@ __all__ = [
     "SignerAuthExpired",
     "SignerRefreshRequired",
     "SkipPaymentCycle",
+    "format_gateway_error",
     "is_signer_auth_error",
 ]

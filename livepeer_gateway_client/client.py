@@ -74,7 +74,12 @@ class LivepeerClient:
             if self._signer_provider.signer_url:
                 signer_url = self._signer_provider.signer_url
             elif signer_url is None:
-                signer_url = os.environ.get("LIVEPEER_SIGNER") or "signer.daydream.live"
+                signer_url = os.environ.get("LIVEPEER_SIGNER")
+            if signer_url is None:
+                raise LivepeerGatewayError(
+                    "Signer URL required: token exchange must return signer_url, "
+                    "or pass signer_url to LivepeerClient / set LIVEPEER_SIGNER"
+                )
 
         return signer_url, signer_headers
 
@@ -98,6 +103,11 @@ class LivepeerClient:
             )
 
         signer_url, signer_headers = self._resolve_signer_auth()
+        _LOG.info(
+            "Connecting with signer_url=%s discovery_url=%s",
+            signer_url,
+            self._discovery_url,
+        )
 
         start_fn = start_scope if self._job_kind == "scope" else start_lv2v
         orch_url = self._orchestrator_url

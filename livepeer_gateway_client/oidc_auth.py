@@ -376,6 +376,46 @@ def refresh(
             raise OIDCError(f"Refresh failed: {exc}") from exc
 
 
+def client_credentials_token(
+    base_url: str,
+    *,
+    client_id: str,
+    client_secret: str,
+    scope: str | None = None,
+    external_user_id: str | None = None,
+    audience: str | None = None,
+    timeout: float = 15.0,
+) -> OAuth2Token:
+    config = discover(base_url)
+    with OAuth2Client(
+        client_id=client_id,
+        client_secret=client_secret,
+        scope=scope,
+        token_endpoint_auth_method="client_secret_basic",
+        timeout=timeout,
+        verify=_oauth_verify(),
+        headers={"Accept": "application/json"},
+    ) as client:
+        kwargs: dict[str, str] = {"grant_type": "client_credentials"}
+        if scope and scope.strip():
+            kwargs["scope"] = scope.strip()
+        if external_user_id and external_user_id.strip():
+            kwargs["external_user_id"] = external_user_id.strip()
+        if audience and audience.strip():
+            kwargs["audience"] = audience.strip()
+        try:
+            payload = client.fetch_token(
+                config.token_endpoint,
+                **kwargs,
+            )
+        except Exception as exc:
+            raise OIDCError(f"Client credentials exchange failed: {exc}") from exc
+        access_token = payload.get("access_token")
+        if not isinstance(access_token, str) or not access_token.strip():
+            raise OIDCError("Client credentials response missing access_token")
+        return OAuth2Token.from_dict(payload)
+
+
 def _cache_dir() -> Path:
     xdg = os.environ.get("XDG_CACHE_HOME")
     base = Path(xdg) if xdg else Path.home() / ".cache"
