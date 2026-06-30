@@ -2,22 +2,75 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "write_frames (raw API key — webhook-validated signer)",
+            "name": "write_frames (Clearinghouse local — Builder API)",
             "type": "debugpy",
             "request": "launch",
             "python": "${workspaceFolder}/.venv/bin/python",
             "program": "${workspaceFolder}/examples/write_frames.py",
             "args": [
-                "--signer",
-                "http://localhost:8081",
+                "--billing-url",
+                "http://localhost:8095",
+                "--client-id",
+                "xEJfZBtEP0JLJtlXm9UnJrDrA9bwepLx",
                 "--api-key",
                 "sk_demo_local_key",
+                "--model",
+                "streamdiffusion-sdxl",
+                "--count",
+                "90000"
+            ],
+            "env": {
+                "LOG_LEVEL": "INFO"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "write_frames (Clearinghouse — OIDC + Builder API)",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "program": "${workspaceFolder}/examples/write_frames.py",
+            "args": [
+                "--oidc-url",
+                "https://pymthouse.us.auth0.com",
+                "--oidc-client-id",
+                "xEJfZBtEP0JLJtlXm9UnJrDrA9bwepLx",
+                "--billing-url",
+                "http://localhost:8095",
                 "--discovery",
                 "https://discovery-service-production-8955.up.railway.app/v1/discovery/raw?serviceType=legacy",
                 "--model",
                 "streamdiffusion-sdxl",
                 "--count",
                 "90000"
+            ],
+            "env": {
+                "LOG_LEVEL": "INFO"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "device_login (Clearinghouse — Auth0 RFC 8628)",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "program": "${workspaceFolder}/examples/device_login.py",
+            "args": [
+                "--issuer",
+                "https://pymthouse.us.auth0.com",
+                "--client-id",
+                "xEJfZBtEP0JLJtlXm9UnJrDrA9bwepLx",
+                "--billing-url",
+                "http://localhost:8095",
+                "--run-frames",
+                "--discovery",
+                "https://discovery-service-production-8955.up.railway.app/v1/discovery/raw?serviceType=legacy",
+                "--model",
+                "streamdiffusion-sdxl",
+                "--count",
+                "9000"
             ],
             "env": {
                 "LOG_LEVEL": "INFO"
@@ -36,14 +89,11 @@
                 "https://discovery-service-production-8955.up.railway.app/v1/discovery/raw?serviceType=legacy",
                 "--billing-url",
                 "https://staging.pymthouse.com",
+                // "http://localhost:3001",
                 "--client-id",
-                "app_51803fb3e53dce667cf0e4df",
-                "--m2m-client-id",
-                "m2m_fc881b5ceeb55bfafcfde255",
-                "--external-user-id",
-                "user_123",
+                "app_bf4a4dd275594713afe37052",
                 "--api-key",
-                "pmth_BEARER_KEY_HERE",
+                "pmth_demo_api_key",
                 "--model",
                 "streamdiffusion-sdxl",
                 "--count",
@@ -54,6 +104,82 @@
             },
             "console": "integratedTerminal",
             "justMyCode": true
+        },
+        {
+            "name": "write_frames (M2M — PymtHouse local)",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "program": "${workspaceFolder}/examples/write_frames.py",
+            "args": [
+                // "https://ai-mdw.eliteencoder.net:8936",
+                "--discovery",
+                "https://discovery-service-production-8955.up.railway.app/v1/discovery/raw?serviceType=legacy",
+                "--billing-url",
+                "https://pymthouse.com",
+                // "http://localhost:3001",
+                "--client-id",
+                "app_51803fb3e53dce667cf0e4df",
+                "--api-key",
+                "pmth_demo_api_key",
+                "--model",
+                "streamdiffusion-sdxl-v2v",
+                "--count",
+                "900000"
+            ],
+            "env": {
+                "LOG_LEVEL": "INFO"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "write_frames_ffplay (M2M — PymtHouse local)",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "program": "${workspaceFolder}/examples/write_frames_ffplay.py",
+            "args": [
+                "--discovery",
+                "https://discovery-service-production-8955.up.railway.app/v1/discovery/raw?serviceType=legacy",
+                "--billing-url",
+                "https://pymthouse.com",
+                "--client-id",
+                "app_7d0ce220153809a19338a6e4",
+                "--api-key",
+                "pmth_demo_api_key",
+                "--model",
+                "streamdiffusion-sdxl-v2v",
+                "--count",
+                "900000"
+            ],
+            "env": {
+                "LOG_LEVEL": "INFO"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "get_orchestrator_info",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "program": "${workspaceFolder}/examples/get_orchestrator_info.py",
+            "args": [
+                "--orchestrator-url",
+                "https://hky.eliteencoder.net:8936",
+                "--signer",
+                "https://signer.eliteencoder.net",
+
+            ],
+            "env": {
+                "LOG_LEVEL": "INFO"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": true
         }
+
+
+        
     ]
 }
