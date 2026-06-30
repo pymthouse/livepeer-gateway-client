@@ -3,15 +3,20 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import urlencode
+
+import httpx
 
 from livepeer_gateway.errors import LivepeerGatewayError
-from livepeer_gateway.orchestrator import post_json
 
 from .oidc_auth import OIDCError, client_credentials_token
 
 _LOG = logging.getLogger(__name__)
 DEFAULT_SCOPE = "sign:job"
+DEFAULT_TOKEN_EXCHANGE_AUDIENCE = "livepeer-clearinghouse"
+TOKEN_EXCHANGE_GRANT = "urn:ietf:params:oauth:grant-type:token-exchange"
+SUBJECT_ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token"
+ISSUED_ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token"
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,48 +56,73 @@ def _exchange_result(payload: dict[str, Any]) -> SignerExchangeResult:
     )
 
 
-def _signer_session_url(billing_url: str, client_id: str) -> str:
-    client_id_value = client_id.strip()
-    if not client_id_value:
-        raise LivepeerGatewayError("signer session exchange requires a non-empty client_id")
-    return (
-        f"{billing_url.rstrip('/')}/api/v1/apps/"
-        f"{quote(client_id_value, safe='')}/auth/signer-session"
-    )
+def _token_endpoint_url(billing_url: str, public_client_id: str) -> str:
+    client_id = public_client_id.strip()
+    if not client_id:
+        raise LivepeerGatewayError("token exchange requires a public client_id")
+    return f"{billing_url.rstrip('/')}/api/v1/apps/{client_id}/oidc/token"
+
+
+def _post_token_exchange(
+    billing_url: str,
+    *,
+    public_client_id: str,
+    subject_token: str,
+    audience: str | None = DEFAULT_TOKEN_EXCHANGE_AUDIENCE,
+    timeout: float = 15.0,
+) -> dict[str, Any]:
+    url = _token_endpoint_url(billing_url, public_client_id)
+    form = {
+        "grant_type": TOKEN_EXCHANGE_GRANT,
+        "subject_token": subject_token,
+        "subject_token_type": SUBJECT_ACCESS_TOKEN_TYPE,
+        "requested_token_type": ISSUED_ACCESS_TOKEN_TYPE,
+        "audience": (audience or DEFAULT_TOKEN_EXCHANGE_AUDIENCE).strip(),
+    }
+    _LOG.info("Exchanging subject token for signer JWT at %s", url)
+    with httpx.Client(timeout=timeout) as client:
+        response = client.post(
+            url,
+            content=urlencode(form),
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+            },
+        )
+    if response.status_code >= 400:
+        raise LivepeerGatewayError(
+            f"HTTP {response.status_code} from endpoint (url={url}); body={response.text!r}"
+        )
+    data = response.json()
+    if not isinstance(data, dict):
+        raise LivepeerGatewayError("token exchange response must be a JSON object")
+    return data
 
 
 def exchange_api_key_for_signer(
     billing_url: str,
     api_key: str,
     *,
-    client_id: str | None = None,
+    client_id: str,
+    audience: str | None = DEFAULT_TOKEN_EXCHANGE_AUDIENCE,
     scope: str | None = DEFAULT_SCOPE,
     timeout: float = 15.0,
 ) -> SignerExchangeResult:
     """
-    Exchange a PymtHouse API key (``pmth_*``) for a signer JWT via PymtHouse.
-
-    Returns routing hints plus ``{"Authorization": "Bearer <jwt>"}``.
+    Exchange an end-user API key (``sk_*``) for a signer JWT via RFC 8693 token exchange.
     """
+    _ = scope
     key = api_key.strip()
     if not key:
         raise LivepeerGatewayError("API key exchange requires a non-empty API key")
-    client_id_value = (client_id or "").strip()
-    if not client_id_value:
-        raise LivepeerGatewayError("API key exchange requires a non-empty client_id")
-    url = _signer_session_url(billing_url, client_id_value)
-    body: dict[str, Any] = {}
-    if scope:
-        body["scope"] = scope
-    _LOG.info("Exchanging API key for signer JWT at %s", url)
-    data = post_json(
-        url,
-        body,
-        headers={
-            "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
+    public_client_id = client_id.strip()
+    if not public_client_id:
+        raise LivepeerGatewayError("API key exchange requires client_id (public app client)")
+    data = _post_token_exchange(
+        billing_url,
+        public_client_id=public_client_id,
+        subject_token=key,
+        audience=audience,
         timeout=timeout,
     )
     return _exchange_result(data)
@@ -103,33 +133,25 @@ def exchange_oidc_token_for_signer(
     client_id: str,
     oidc_access_token: str,
     *,
+    audience: str | None = DEFAULT_TOKEN_EXCHANGE_AUDIENCE,
     scope: str | None = DEFAULT_SCOPE,
     timeout: float = 15.0,
 ) -> SignerExchangeResult:
     """
     Exchange an Auth0 end-user access token (device code / OIDC) for a signer session.
-
-    Provisions the OpenMeter customer and returns a minted signer JWT plus routing hints.
     """
+    _ = scope
+    public_client_id = client_id.strip()
+    if not public_client_id:
+        raise LivepeerGatewayError("OIDC exchange requires client_id (public app client)")
     token = oidc_access_token.strip()
     if not token:
         raise LivepeerGatewayError("OIDC exchange requires a non-empty access token")
-    client_id_value = client_id.strip()
-    if not client_id_value:
-        raise LivepeerGatewayError("OIDC exchange requires a non-empty client_id")
-    url = _signer_session_url(billing_url, client_id_value)
-    body: dict[str, Any] = {}
-    if scope:
-        body["scope"] = scope
-    _LOG.info("Exchanging OIDC access token for signer JWT at %s", url)
-    data = post_json(
-        url,
-        body,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
+    data = _post_token_exchange(
+        billing_url,
+        public_client_id=public_client_id,
+        subject_token=token,
+        audience=audience,
         timeout=timeout,
     )
     return _exchange_result(data)

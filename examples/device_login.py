@@ -85,7 +85,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--billing-url",
         default="http://localhost:8095",
-        help="Clearinghouse Builder API for OIDC signer-session exchange (OpenMeter provision).",
+        help="Clearinghouse Builder API for RFC 8693 token exchange (OpenMeter provision).",
     )
     p.add_argument(
         "--discovery",

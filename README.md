@@ -113,7 +113,7 @@ uv run examples/write_frames.py \
   --discovery "https://discovery.example.com/v1/discovery/raw" \
   --model streamdiffusion-sdxl
 
-# Clearinghouse Builder API signer-session exchange (sk_* API key; discovery_url from response)
+# Clearinghouse Builder API RFC 8693 exchange (sk_* API key; discovery_url from response)
 uv run examples/write_frames.py \
   --billing-url http://localhost:8095 \
   --client-id xEJfZBtEP0JLJtlXm9UnJrDrA9bwepLx \
@@ -136,7 +136,7 @@ uv run examples/write_frames.py \
   --api-key pmth_cs_xxx \
   --model streamdiffusion-sdxl
 
-# Auth0 device code (clearinghouse — provisions OpenMeter via Builder API exchange)
+# Auth0 device code (clearinghouse — provisions OpenMeter via RFC 8693 token exchange)
 uv run examples/device_login.py \
   --issuer https://pymthouse.us.auth0.com \
   --client-id xEJfZBtEP0JLJtlXm9UnJrDrA9bwepLx \

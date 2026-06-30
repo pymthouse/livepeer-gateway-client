@@ -89,7 +89,7 @@ class SignerTokenProvider:
                 return self.headers
 
             if not self._client_id:
-                raise LivepeerGatewayError("pmth_* API key exchange requires client_id")
+                raise LivepeerGatewayError("API key exchange requires client_id (public app client)")
             result = exchange_api_key_for_signer(
                 self._billing_url,
                 api_key,
@@ -104,9 +104,10 @@ class SignerTokenProvider:
         if self._oidc_base_url:
             from .oidc_auth import ensure_valid_token
 
+            oidc_client_id = self._oidc_client_id
             tokens = ensure_valid_token(
                 self._oidc_base_url,
-                client_id=self._oidc_client_id,
+                client_id=oidc_client_id,
                 scopes=self._oidc_scopes,
                 audience=self._oidc_audience,
                 headless=self._oidc_headless,
@@ -115,11 +116,11 @@ class SignerTokenProvider:
             if not isinstance(access_token, str) or not access_token.strip():
                 raise LivepeerGatewayError("OIDC token response missing access_token")
 
-            exchange_client_id = self._client_id or self._oidc_client_id
-            if self._billing_url and exchange_client_id:
+            public_client_id = self._client_id or oidc_client_id
+            if self._billing_url and public_client_id:
                 result = exchange_oidc_token_for_signer(
                     self._billing_url,
-                    exchange_client_id,
+                    public_client_id,
                     access_token,
                     scope=self._scope,
                     timeout=self._timeout,
