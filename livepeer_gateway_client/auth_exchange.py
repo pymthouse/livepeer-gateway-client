@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
 
@@ -13,26 +14,51 @@ _LOG = logging.getLogger(__name__)
 DEFAULT_SCOPE = "sign:job"
 
 
+@dataclass(frozen=True, slots=True)
+class SignerExchangeResult:
+    headers: dict[str, str]
+    signer_url: str | None = None
+    discovery_url: str | None = None
+
+
 def _signer_access_token(payload: dict[str, Any]) -> str:
-    token_obj = payload.get("token")
-    if isinstance(token_obj, dict):
-        for key in ("accessToken", "access_token"):
-            value = token_obj.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-    for key in ("accessToken", "access_token"):
-        value = payload.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    raise LivepeerGatewayError("API key exchange response missing signer access token")
+    value = payload.get("access_token")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    raise LivepeerGatewayError("API key exchange response missing access_token")
+
+
+def _optional_url(payload: dict[str, Any], key: str) -> str | None:
+    value = payload.get(key)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
 
 
 def _signer_url(payload: dict[str, Any]) -> str | None:
-    for key in ("signerUrl", "signer_url"):
-        value = payload.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return None
+    return _optional_url(payload, "signer_url")
+
+
+def _discovery_url(payload: dict[str, Any]) -> str | None:
+    return _optional_url(payload, "discovery_url")
+
+
+def _exchange_result(payload: dict[str, Any]) -> SignerExchangeResult:
+    return SignerExchangeResult(
+        headers={"Authorization": f"Bearer {_signer_access_token(payload)}"},
+        signer_url=_signer_url(payload),
+        discovery_url=_discovery_url(payload),
+    )
+
+
+def _signer_session_url(billing_url: str, client_id: str) -> str:
+    client_id_value = client_id.strip()
+    if not client_id_value:
+        raise LivepeerGatewayError("signer session exchange requires a non-empty client_id")
+    return (
+        f"{billing_url.rstrip('/')}/api/v1/apps/"
+        f"{quote(client_id_value, safe='')}/auth/signer-session"
+    )
 
 
 def exchange_api_key_for_signer(
@@ -42,11 +68,11 @@ def exchange_api_key_for_signer(
     client_id: str | None = None,
     scope: str | None = DEFAULT_SCOPE,
     timeout: float = 15.0,
-) -> tuple[str | None, dict[str, str]]:
+) -> SignerExchangeResult:
     """
     Exchange a PymtHouse API key (``pmth_*``) for a signer JWT via PymtHouse.
 
-    Returns ``(signer_url, {"Authorization": "Bearer <jwt>"})``.
+    Returns routing hints plus ``{"Authorization": "Bearer <jwt>"}``.
     """
     key = api_key.strip()
     if not key:
@@ -54,10 +80,7 @@ def exchange_api_key_for_signer(
     client_id_value = (client_id or "").strip()
     if not client_id_value:
         raise LivepeerGatewayError("API key exchange requires a non-empty client_id")
-    url = (
-        f"{billing_url.rstrip('/')}/api/v1/apps/"
-        f"{quote(client_id_value, safe='')}/auth/api-key/signer-session"
-    )
+    url = _signer_session_url(billing_url, client_id_value)
     body: dict[str, Any] = {}
     if scope:
         body["scope"] = scope
@@ -72,7 +95,44 @@ def exchange_api_key_for_signer(
         },
         timeout=timeout,
     )
-    return _signer_url(data), {"Authorization": f"Bearer {_signer_access_token(data)}"}
+    return _exchange_result(data)
+
+
+def exchange_oidc_token_for_signer(
+    billing_url: str,
+    client_id: str,
+    oidc_access_token: str,
+    *,
+    scope: str | None = DEFAULT_SCOPE,
+    timeout: float = 15.0,
+) -> SignerExchangeResult:
+    """
+    Exchange an Auth0 end-user access token (device code / OIDC) for a signer session.
+
+    Provisions the OpenMeter customer and returns a minted signer JWT plus routing hints.
+    """
+    token = oidc_access_token.strip()
+    if not token:
+        raise LivepeerGatewayError("OIDC exchange requires a non-empty access token")
+    client_id_value = client_id.strip()
+    if not client_id_value:
+        raise LivepeerGatewayError("OIDC exchange requires a non-empty client_id")
+    url = _signer_session_url(billing_url, client_id_value)
+    body: dict[str, Any] = {}
+    if scope:
+        body["scope"] = scope
+    _LOG.info("Exchanging OIDC access token for signer JWT at %s", url)
+    data = post_json(
+        url,
+        body,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        timeout=timeout,
+    )
+    return _exchange_result(data)
 
 
 def exchange_client_secret_for_signer(
@@ -84,11 +144,11 @@ def exchange_client_secret_for_signer(
     external_user_id: str | None = None,
     audience: str | None = None,
     timeout: float = 15.0,
-) -> tuple[str | None, dict[str, str]]:
+) -> SignerExchangeResult:
     """
     Exchange an M2M client secret (``pmth_cs_*``) for a signer session via OIDC.
 
-    Returns ``(signer_url, {"Authorization": "Bearer <jwt>"})``.
+    Returns routing hints plus ``{"Authorization": "Bearer <jwt>"}``.
     """
     secret = client_secret.strip()
     if not secret:
@@ -116,4 +176,8 @@ def exchange_client_secret_for_signer(
         raise LivepeerGatewayError(
             "M2M client credentials response missing access_token"
         )
-    return _signer_url(tokens), {"Authorization": f"Bearer {access_token.strip()}"}
+    return SignerExchangeResult(
+        headers={"Authorization": f"Bearer {access_token.strip()}"},
+        signer_url=_signer_url(tokens),
+        discovery_url=_discovery_url(tokens),
+    )

@@ -1,6 +1,11 @@
+"""Start an LV2V job, publish test frames, and play output via ffplay."""
+
 import argparse
 import asyncio
 import logging
+import subprocess
+import sys
+from contextlib import suppress
 from fractions import Fraction
 
 import av
@@ -15,12 +20,15 @@ from livepeer_gateway_client import (
 )
 
 DEFAULT_MODEL_ID = "noop"
-DEFAULT_CLEARINGHOUSE_AUDIENCE = "livepeer-clearinghouse"
+DEFAULT_FFPLAY_ARGS = ("-fflags", "nobuffer", "-f", "mpegts", "-i", "pipe:0")
 
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Start an LV2V job and publish raw frames via publish_url."
+        description=(
+            "Start an LV2V job, publish raw frames via publish_url, "
+            "subscribe to subscribe_url, and pipe MPEG-TS to ffplay."
+        )
     )
     p.add_argument(
         "orchestrator",
@@ -36,12 +44,12 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--discovery",
         default=None,
-        help="Discovery service URL. Overrides discovery_url from signer-session exchange.",
+        help="Discovery service URL. Used when no orchestrator is specified.",
     )
     p.add_argument(
         "--billing-url",
         default=None,
-        help="PymtHouse base URL for API-key signer-session exchange (e.g. https://staging.pymthouse.com).",
+        help="PymtHouse base URL for API-key signer-session exchange.",
     )
     p.add_argument(
         "--client-id",
@@ -71,27 +79,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--oidc-url",
         default=None,
-        help="OIDC issuer URL (Auth0 or PymtHouse). Device code flow when headless (default).",
-    )
-    p.add_argument(
-        "--oidc-client-id",
-        default=None,
-        help="Public/native OIDC client id (e.g. Auth0 Demo App public client).",
-    )
-    p.add_argument(
-        "--oidc-audience",
-        default=DEFAULT_CLEARINGHOUSE_AUDIENCE,
-        help="Auth0 API audience for device login (Builder API validates server-side).",
-    )
-    p.add_argument(
-        "--oidc-scopes",
-        default="openid sign:job offline_access",
-        help="OIDC scopes for device/browser login (default: openid sign:job offline_access).",
-    )
-    p.add_argument(
-        "--oidc-browser",
-        action="store_true",
-        help="Use browser redirect login instead of RFC 8628 device code.",
+        help="PymtHouse OIDC issuer base URL for interactive auth.",
     )
     p.add_argument(
         "--token",
@@ -114,6 +102,11 @@ def _parse_args() -> argparse.Namespace:
         "--count", type=int, default=90, help="Number of frames to send (default: 90)."
     )
     p.add_argument(
+        "--ffplay",
+        default="ffplay",
+        help="ffplay binary (default: ffplay).",
+    )
+    p.add_argument(
         "--debug",
         action="store_true",
         help="Enable debug logging (equivalent to LOG_LEVEL=DEBUG).",
@@ -130,6 +123,31 @@ def _solid_rgb_frame(
     return frame
 
 
+async def _pipe_output_to_ffplay(job, ffplay_bin: str) -> None:
+    if not job.subscribe_url:
+        raise LivepeerGatewayError("No subscribe_url present on this LiveVideoToVideo job")
+
+    proc = await asyncio.create_subprocess_exec(
+        ffplay_bin,
+        *DEFAULT_FFPLAY_ARGS,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=None,
+    )
+    if proc.stdin is None:
+        raise LivepeerGatewayError("ffplay stdin pipe was not available")
+
+    try:
+        async with job.media_output() as output:
+            async for chunk in output.bytes():
+                proc.stdin.write(chunk)
+                await proc.stdin.drain()
+    finally:
+        if proc.stdin is not None:
+            proc.stdin.close()
+        await proc.wait()
+
+
 async def main() -> None:
     args = _parse_args()
     frame_interval = 1.0 / max(1e-6, args.fps)
@@ -137,6 +155,7 @@ async def main() -> None:
     logging.basicConfig(level=log_level, format="%(levelname)s %(name)s: %(message)s")
 
     client = None
+    output_task: asyncio.Task[None] | None = None
     try:
         signer_provider = None
         signer_url = args.signer
@@ -152,15 +171,7 @@ async def main() -> None:
                 m2m_audience=args.m2m_audience,
             )
         elif args.oidc_url:
-            signer_provider = SignerTokenProvider(
-                oidc_base_url=args.oidc_url,
-                billing_url=args.billing_url,
-                client_id=args.oidc_client_id,
-                oidc_client_id=args.oidc_client_id or "livepeer-sdk",
-                oidc_scopes=args.oidc_scopes,
-                oidc_audience=args.oidc_audience,
-                oidc_headless=not args.oidc_browser,
-            )
+            signer_provider = SignerTokenProvider(oidc_base_url=args.oidc_url)
         elif args.api_key and args.signer:
             signer_headers = {"Authorization": f"Bearer {args.api_key.strip()}"}
 
@@ -177,7 +188,10 @@ async def main() -> None:
 
         print("=== LiveVideoToVideo ===")
         print("publish_url:", job.publish_url)
+        print("subscribe_url:", job.subscribe_url)
         print()
+
+        output_task = asyncio.create_task(_pipe_output_to_ffplay(job, args.ffplay))
 
         media = job.start_media(
             MediaPublishConfig(
@@ -194,8 +208,12 @@ async def main() -> None:
             await media.write_frame(frame)
             await asyncio.sleep(frame_interval)
     except LivepeerGatewayError as e:
-        print(f"ERROR: {format_gateway_error(e)}")
+        print(f"ERROR: {format_gateway_error(e)}", file=sys.stderr)
     finally:
+        if output_task is not None:
+            output_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await output_task
         if client is not None:
             await client.disconnect()
 

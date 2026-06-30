@@ -83,6 +83,15 @@ class LivepeerClient:
 
         return signer_url, signer_headers
 
+    def _resolve_discovery_url(self) -> str | None:
+        discovery_url = self._discovery_url
+        if discovery_url is None and self._signer_provider is not None:
+            if self._signer_provider.discovery_url:
+                discovery_url = self._signer_provider.discovery_url
+        if discovery_url is None:
+            discovery_url = os.environ.get("LIVEPEER_DISCOVERY")
+        return discovery_url
+
     async def connect(
         self,
         req: StartJobRequest | None = None,
@@ -103,10 +112,11 @@ class LivepeerClient:
             )
 
         signer_url, signer_headers = self._resolve_signer_auth()
+        discovery_url = self._resolve_discovery_url()
         _LOG.info(
             "Connecting with signer_url=%s discovery_url=%s",
             signer_url,
-            self._discovery_url,
+            discovery_url,
         )
 
         start_fn = start_scope if self._job_kind == "scope" else start_lv2v
@@ -120,7 +130,7 @@ class LivepeerClient:
             token=self._token,
             signer_url=signer_url,
             signer_headers=signer_headers,
-            discovery_url=self._discovery_url,
+            discovery_url=discovery_url,
             discovery_headers=signer_headers,
             use_tofu=self._use_tofu,
             timeout=self._timeout,

@@ -245,6 +245,7 @@ def device_login(
     *,
     client_id: str = DEFAULT_CLIENT_ID,
     scopes: str = DEFAULT_SCOPES,
+    audience: str | None = None,
     on_device_auth: Callable[[str, str, int], None] | None = None,
 ) -> OAuth2Token:
     config = discover(base_url)
@@ -255,16 +256,22 @@ def device_login(
             "The discovery document has no device_authorization_endpoint."
         )
 
+    audience_value = (audience or "").strip()
+
+    def _device_request_body() -> dict[str, str]:
+        body = {"client_id": client_id, "scope": scopes}
+        if audience_value:
+            body["audience"] = audience_value
+        else:
+            body["resource"] = config.issuer
+        return body
+
     with _build_oauth2_client(client_id=client_id, scopes=scopes) as client:
         resp = client.request(
             "POST",
             config.device_authorization_endpoint,
             withhold_token=True,
-            data={
-                "client_id": client_id,
-                "scope": scopes,
-                "resource": config.issuer,
-            },
+            data=_device_request_body(),
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
 
@@ -317,7 +324,6 @@ def device_login(
                     "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
                     "client_id": client_id,
                     "device_code": device_code,
-                    "resource": config.issuer,
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
@@ -426,8 +432,9 @@ def _cache_key(
     base_url: str,
     client_id: str = DEFAULT_CLIENT_ID,
     scopes: str = DEFAULT_SCOPES,
+    audience: str | None = None,
 ) -> str:
-    key_material = f"{base_url}|{client_id}|{scopes}"
+    key_material = f"{base_url}|{client_id}|{scopes}|{(audience or '').strip()}"
     return hashlib.sha256(key_material.encode()).hexdigest()[:16]
 
 
@@ -436,8 +443,9 @@ def load_cached_token(
     *,
     client_id: str = DEFAULT_CLIENT_ID,
     scopes: str = DEFAULT_SCOPES,
+    audience: str | None = None,
 ) -> OAuth2Token | None:
-    path = _cache_dir() / f"{_cache_key(base_url, client_id, scopes)}.json"
+    path = _cache_dir() / f"{_cache_key(base_url, client_id, scopes, audience)}.json"
     if not path.exists():
         return None
     try:
@@ -454,10 +462,11 @@ def save_cached_token(
     *,
     client_id: str = DEFAULT_CLIENT_ID,
     scopes: str = DEFAULT_SCOPES,
+    audience: str | None = None,
 ) -> None:
     cache = _cache_dir()
     cache.mkdir(parents=True, exist_ok=True)
-    path = cache / f"{_cache_key(base_url, client_id, scopes)}.json"
+    path = cache / f"{_cache_key(base_url, client_id, scopes, audience)}.json"
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(dict(tokens)), "utf-8")
     os.chmod(tmp, 0o600)
@@ -469,8 +478,9 @@ def clear_cached_token(
     *,
     client_id: str = DEFAULT_CLIENT_ID,
     scopes: str = DEFAULT_SCOPES,
+    audience: str | None = None,
 ) -> None:
-    path = _cache_dir() / f"{_cache_key(base_url, client_id, scopes)}.json"
+    path = _cache_dir() / f"{_cache_key(base_url, client_id, scopes, audience)}.json"
     path.unlink(missing_ok=True)
 
 
@@ -490,6 +500,7 @@ def ensure_valid_token(
     *,
     client_id: str = DEFAULT_CLIENT_ID,
     scopes: str = DEFAULT_SCOPES,
+    audience: str | None = None,
     headless: bool = True,
     on_device_auth: Callable[[str, str, int], None] | None = None,
 ) -> OAuth2Token:
@@ -500,7 +511,9 @@ def ensure_valid_token(
     ):
         headless = False
 
-    cached = load_cached_token(base_url, client_id=client_id, scopes=scopes)
+    cached = load_cached_token(
+        base_url, client_id=client_id, scopes=scopes, audience=audience
+    )
 
     if cached and not cached.is_expired():
         _LOG.debug("Using cached OIDC token for %s", base_url)
@@ -510,7 +523,9 @@ def ensure_valid_token(
         _LOG.info("Access token expired, refreshing...")
         try:
             tokens = refresh(base_url, cached["refresh_token"], client_id=client_id)
-            save_cached_token(base_url, tokens, client_id=client_id, scopes=scopes)
+            save_cached_token(
+                base_url, tokens, client_id=client_id, scopes=scopes, audience=audience
+            )
             return tokens
         except Exception:
             _LOG.warning("Token refresh failed, falling back to login", exc_info=True)
@@ -521,10 +536,13 @@ def ensure_valid_token(
             base_url,
             client_id=client_id,
             scopes=scopes,
+            audience=audience,
             on_device_auth=on_device_auth,
         )
     else:
         _LOG.info("Starting OIDC browser login for %s", base_url)
         tokens = login(base_url, client_id=client_id, scopes=scopes)
-    save_cached_token(base_url, tokens, client_id=client_id, scopes=scopes)
+    save_cached_token(
+        base_url, tokens, client_id=client_id, scopes=scopes, audience=audience
+    )
     return tokens

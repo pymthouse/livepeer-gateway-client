@@ -15,23 +15,25 @@ from livepeer_gateway_client.signer_provider import SignerTokenProvider
 
 def test_exchange_api_key_for_signer_returns_signer_url_and_bearer() -> None:
     payload = {
-        "token": {"accessToken": "jwt"},
-        "signerUrl": "https://signer.example",
+        "access_token": "jwt",
+        "signer_url": "https://signer.example",
+        "discovery_url": "https://discovery.example/raw",
     }
     with patch(
         "livepeer_gateway_client.auth_exchange.post_json",
         return_value=payload,
     ) as post_json:
-        signer_url, headers = exchange_api_key_for_signer(
+        result = exchange_api_key_for_signer(
             "https://staging.pymthouse.com",
             "pmth_test",
             client_id="app_test",
         )
 
-    assert signer_url == "https://signer.example"
-    assert headers == {"Authorization": "Bearer jwt"}
+    assert result.signer_url == "https://signer.example"
+    assert result.discovery_url == "https://discovery.example/raw"
+    assert result.headers == {"Authorization": "Bearer jwt"}
     post_json.assert_called_once_with(
-        "https://staging.pymthouse.com/api/v1/apps/app_test/auth/api-key/signer-session",
+        "https://staging.pymthouse.com/api/v1/apps/app_test/auth/signer-session",
         {"scope": "sign:job"},
         headers={
             "Authorization": "Bearer pmth_test",
@@ -54,7 +56,7 @@ def test_exchange_api_key_for_signer_requires_client_id() -> None:
 
 def test_exchange_api_key_for_signer_requires_access_token() -> None:
     with patch("livepeer_gateway_client.auth_exchange.post_json", return_value={}):
-        with pytest.raises(LivepeerGatewayError, match="missing signer access token"):
+        with pytest.raises(LivepeerGatewayError, match="missing access_token"):
             exchange_api_key_for_signer(
                 "https://staging.pymthouse.com",
                 "pmth_test",
@@ -64,8 +66,16 @@ def test_exchange_api_key_for_signer_requires_access_token() -> None:
 
 def test_signer_token_provider_refresh_remints_headers() -> None:
     payloads = [
-        {"token": {"accessToken": "jwt1"}, "signerUrl": "https://signer.example"},
-        {"token": {"accessToken": "jwt2"}, "signerUrl": "https://signer.example"},
+        {
+            "access_token": "jwt1",
+            "signer_url": "https://signer.example",
+            "discovery_url": "https://discovery.example/raw",
+        },
+        {
+            "access_token": "jwt2",
+            "signer_url": "https://signer.example",
+            "discovery_url": "https://discovery.example/raw",
+        },
     ]
     with patch(
         "livepeer_gateway_client.auth_exchange.post_json",
@@ -79,11 +89,42 @@ def test_signer_token_provider_refresh_remints_headers() -> None:
         first = provider.refresh()
         assert first == {"Authorization": "Bearer jwt1"}
         assert provider.signer_url == "https://signer.example"
+        assert provider.discovery_url == "https://discovery.example/raw"
         assert provider.headers == first
 
         second = provider.refresh()
         assert second == {"Authorization": "Bearer jwt2"}
         assert provider.headers == second
+
+
+def test_signer_token_provider_oidc_exchanges_via_builder_api() -> None:
+    with (
+        patch(
+            "livepeer_gateway_client.oidc_auth.ensure_valid_token",
+            return_value={"access_token": "device_jwt"},
+        ),
+        patch(
+            "livepeer_gateway_client.auth_exchange.post_json",
+            return_value={
+                "access_token": "minted_jwt",
+                "signer_url": "http://localhost:8081",
+                "discovery_url": "https://discovery.example/raw",
+            },
+        ) as post_json,
+    ):
+        provider = SignerTokenProvider(
+            oidc_base_url="https://pymthouse.us.auth0.com",
+            billing_url="http://localhost:8095",
+            oidc_client_id="pub-client",
+            oidc_audience="livepeer-clearinghouse",
+        )
+        headers = provider.refresh()
+
+    assert headers == {"Authorization": "Bearer minted_jwt"}
+    assert provider.signer_url == "http://localhost:8081"
+    assert provider.discovery_url == "https://discovery.example/raw"
+    post_json.assert_called_once()
+    assert post_json.call_args.args[0].endswith("/auth/signer-session")
 
 
 def test_exchange_client_secret_for_signer_returns_signer_url_and_bearer() -> None:
@@ -97,7 +138,7 @@ def test_exchange_client_secret_for_signer_returns_signer_url_and_bearer() -> No
         "livepeer_gateway_client.auth_exchange.client_credentials_token",
         return_value=payload,
     ) as client_credentials_token:
-        signer_url, headers = exchange_client_secret_for_signer(
+        result = exchange_client_secret_for_signer(
             "https://staging.pymthouse.com/api/v1/oidc",
             "m2m_test",
             "pmth_cs_test",
@@ -105,8 +146,8 @@ def test_exchange_client_secret_for_signer_returns_signer_url_and_bearer() -> No
             audience="livepeer-remote-signer",
         )
 
-    assert signer_url == "https://pymthouse-preview.up.railway.app"
-    assert headers == {"Authorization": "Bearer m2m_jwt"}
+    assert result.signer_url == "https://pymthouse-preview.up.railway.app"
+    assert result.headers == {"Authorization": "Bearer m2m_jwt"}
     client_credentials_token.assert_called_once_with(
         "https://staging.pymthouse.com/api/v1/oidc",
         client_id="m2m_test",
