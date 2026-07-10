@@ -31,8 +31,8 @@ examples = [
 ]
 
 [tool.uv.sources]
-# ja/live-runner + session-owned payment lifecycle (PR #31).
-livepeer-gateway = { git = "https://github.com/livepeer/livepeer-python-gateway", rev = "81ee7bee7932afe94c882a560e5a8bdba1f2cb04" }
+# BYOC live-runner payment type + preloadSeconds (local until published).
+livepeer-gateway = { path = "../livepeer-python-gateway", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["livepeer_gateway_client"]

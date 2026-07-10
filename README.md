@@ -158,6 +158,62 @@ uv run examples/write_frames.py \
 
 VS Code launch configs for API key, Builder API exchange, and device code are in `.vscode/launch.json`.
 
+## Transcoding pipeline (`transcode/ffmpeg`)
+
+`examples/transcode.py` drives the general-runner **`transcode/ffmpeg`** app (go-livepeer's
+native `{"profiles": [...]}` contract) over the SDK's live-runner surface
+(`reserve_session` → `call_runner` for batch, or trickle publish/subscribe for live).
+
+Discovery accepts either:
+
+- discovery-service `/v1/discovery/raw` (two-hop: orch addresses for `caps=transcode/ffmpeg`,
+  then each orch's `/discovery`), or
+- a single orchestrator `GET /discovery` URL (single-hop runner list).
+
+The hosted runner is **paid** (advertises `price_per_unit`), so pass a signer — either a
+raw remote signer URL or a PymtHouse credential exchanged into a short-lived signer session.
+
+```bash
+uv sync --extra examples
+
+# Batch via discovery-service (two-hop)
+uv run examples/transcode.py examples/clip.mp4 \
+  --discovery https://discovery-service-production-8955.up.railway.app/v1/discovery/raw \
+  --signer https://signer.eliteencoder.net \
+  --heights 720,360
+
+# Batch against a single orch /discovery
+uv run examples/transcode.py examples/clip.mp4 \
+  --discovery http://154.61.61.108:8787/discovery \
+  --signer https://signer.eliteencoder.net \
+  --heights 720,360
+
+# Batch at scale: object storage in/out (bytes never touch the control plane)
+uv run examples/transcode.py \
+  --input-url https://.../src.mp4 \
+  --output-urls '{"720p":"https://.../720p.mp4?sig=..."}' \
+  --profiles '[{"name":"720p","height":720,"bitrate":3000000,"profile":"H264High"}]' \
+  --discovery http://154.61.61.108:8787/discovery \
+  --signer https://signer.eliteencoder.net
+
+# Live (trickle): real-time rendition ladder, written to out-<name>.ts
+uv run examples/transcode.py examples/clip.mp4 --live \
+  --discovery https://discovery-service-production-8955.up.railway.app/v1/discovery/raw \
+  --signer https://signer.eliteencoder.net \
+  --heights 720,360
+
+# PymtHouse API-key signer-session exchange instead of a raw signer URL
+uv run examples/transcode.py examples/clip.mp4 \
+  --discovery https://discovery-service-production-8955.up.railway.app/v1/discovery/raw \
+  --billing-url https://pymthouse.com --client-id app_xxx --api-key pmth_xxx \
+  --heights 720,360
+```
+
+Native `JsonProfile` fields (`name`/`width`/`height`/`bitrate`/`fps`/`gop`/`profile`/
+`encoder`/`quality`) are accepted via `--profiles`; `--heights` is a shorthand that expands
+to one profile per height. The `transcode batch` / `transcode live` launch configs in
+`.vscode/launch.json` use the discovery-service two-hop path by default.
+
 ## Development
 
 ```bash

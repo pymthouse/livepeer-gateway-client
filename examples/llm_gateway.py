@@ -116,6 +116,7 @@ def main() -> None:
             if payload.get("stream"):
                 async with await call_runner(
                     runner_url=runner_url,
+                    runner=session.runner,
                     payload=payload,
                     signer_url=signer_url,
                     signer_headers=signer_headers,
@@ -135,6 +136,7 @@ def main() -> None:
 
             result = await call_runner(
                 runner_url=runner_url,
+                runner=session.runner,
                 payload=payload,
                 signer_url=signer_url,
                 signer_headers=signer_headers,

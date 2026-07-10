@@ -14,3 +14,7 @@ dist/
 .DS_Store
 .pytest_cache/
 .ruff_cache/
+
+# Example transcode outputs (keep the sample clip.mp4 committed)
+examples/out-*
+examples/out.*

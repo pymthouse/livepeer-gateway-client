@@ -11,6 +11,17 @@ from .auth_exchange import (
 )
 
 
+def client_id_from_api_key(api_key: str) -> str | None:
+    """Extract public ``app_*`` client id from a composite ``app_*.pmth_*`` key."""
+    key = api_key.strip()
+    if not key.startswith("app_") or "." not in key:
+        return None
+    client_id, _, secret = key.partition(".")
+    if not client_id.startswith("app_") or not secret.startswith("pmth_"):
+        return None
+    return client_id
+
+
 class SignerTokenProvider:
     """Re-exchangeable source of signer auth headers.
 
@@ -88,12 +99,16 @@ class SignerTokenProvider:
                 self.headers = result.headers
                 return self.headers
 
-            if not self._client_id:
-                raise LivepeerGatewayError("API key exchange requires client_id (public app client)")
+            client_id = (self._client_id or "").strip() or client_id_from_api_key(api_key)
+            if not client_id:
+                raise LivepeerGatewayError(
+                    "API key exchange requires client_id (public app client), "
+                    "or a composite app_<clientId>.pmth_* API key"
+                )
             result = exchange_api_key_for_signer(
                 self._billing_url,
                 api_key,
-                client_id=self._client_id,
+                client_id=client_id,
                 scope=self._scope,
                 timeout=self._timeout,
             )
@@ -133,5 +148,7 @@ class SignerTokenProvider:
             return self.headers
 
         raise LivepeerGatewayError(
-            "SignerTokenProvider requires billing_url+api_key (plus client_id for pmth_* or m2m_client_id+external_user_id for pmth_cs_*) or oidc_base_url"
+            "SignerTokenProvider requires billing_url+api_key "
+            "(client_id optional for app_*.pmth_* keys; m2m_client_id+external_user_id for pmth_cs_*) "
+            "or oidc_base_url"
         )
