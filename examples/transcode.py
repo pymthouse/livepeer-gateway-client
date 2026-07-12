@@ -160,7 +160,7 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "PymtHouse public client id (app_*). Optional when --api-key is a "
-            "composite app_<clientId>.pmth_* key."
+            "composite app_<24hex>_<secret> key."
         ),
     )
     p.add_argument(

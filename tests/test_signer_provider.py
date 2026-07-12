@@ -20,12 +20,17 @@ from livepeer_gateway_client.signer_provider import (
 def test_client_id_from_api_key_parses_composite_key() -> None:
     assert (
         client_id_from_api_key(
-            "app_dd468600406409a403a82952.pmth_58a79e0224887e9948aea39501483a94e82c1d073ee008b0c9f00fa19a425eb3"
+            "app_dd468600406409a403a82952_pmth_58a79e0224887e9948aea39501483a94e82c1d073ee008b0c9f00fa19a425eb3"
         )
         == "app_dd468600406409a403a82952"
     )
     assert client_id_from_api_key("pmth_only") is None
-    assert client_id_from_api_key("app_x.not_pmth") is None
+    assert client_id_from_api_key(
+        "app_dd468600406409a403a82952.pmth_58a79e0224887e9948aea39501483a94e82c1d073ee008b0c9f00fa19a425eb3"
+    ) is None
+    assert client_id_from_api_key(
+        "app_dd468600406409a403a82952_pmth_cs_deadbeef"
+    ) is None
 
 
 def test_exchange_api_key_for_signer_returns_signer_url_and_bearer() -> None:
@@ -110,6 +115,10 @@ def test_signer_token_provider_refresh_remints_headers() -> None:
 
 
 def test_signer_token_provider_derives_client_id_from_composite_api_key() -> None:
+    composite = (
+        "app_dd468600406409a403a82952_pmth_58a79e0224887e9948aea39501483a94"
+        "e82c1d073ee008b0c9f00fa19a425eb3"
+    )
     with patch(
         "livepeer_gateway_client.auth_exchange._post_token_exchange",
         return_value={
@@ -119,15 +128,15 @@ def test_signer_token_provider_derives_client_id_from_composite_api_key() -> Non
     ) as post_exchange:
         provider = SignerTokenProvider(
             billing_url="http://localhost:8095",
-            api_key="app_abc123.pmth_deadbeef",
+            api_key=composite,
         )
         headers = provider.refresh()
 
     assert headers == {"Authorization": "Bearer jwt"}
     post_exchange.assert_called_once_with(
         "http://localhost:8095",
-        public_client_id="app_abc123",
-        subject_token="app_abc123.pmth_deadbeef",
+        public_client_id="app_dd468600406409a403a82952",
+        subject_token=composite,
         audience="livepeer-clearinghouse",
         timeout=15.0,
     )

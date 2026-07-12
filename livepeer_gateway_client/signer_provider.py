@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from livepeer_gateway.errors import LivepeerGatewayError
 
 from .auth_exchange import (
@@ -10,16 +12,20 @@ from .auth_exchange import (
     exchange_oidc_token_for_signer,
 )
 
+# PymtHouse presented composite: ``app_<24hex>_<secret>`` (underscore separator).
+_COMPOSITE_API_KEY_RE = re.compile(r"^(app_[a-f0-9]{24})_(.+)$")
+_CLIENT_SECRET_SEGMENT_RE = re.compile(r"(?:^|_)cs_")
+
 
 def client_id_from_api_key(api_key: str) -> str | None:
-    """Extract public ``app_*`` client id from a composite ``app_*.pmth_*`` key."""
-    key = api_key.strip()
-    if not key.startswith("app_") or "." not in key:
+    """Extract public ``app_*`` client id from a composite ``app_<24hex>_<secret>`` key."""
+    match = _COMPOSITE_API_KEY_RE.match(api_key.strip())
+    if not match:
         return None
-    client_id, _, secret = key.partition(".")
-    if not client_id.startswith("app_") or not secret.startswith("pmth_"):
+    secret = match.group(2)
+    if not secret or _CLIENT_SECRET_SEGMENT_RE.search(secret):
         return None
-    return client_id
+    return match.group(1)
 
 
 class SignerTokenProvider:
@@ -103,7 +109,7 @@ class SignerTokenProvider:
             if not client_id:
                 raise LivepeerGatewayError(
                     "API key exchange requires client_id (public app client), "
-                    "or a composite app_<clientId>.pmth_* API key"
+                    "or a composite app_<24hex>_<secret> API key"
                 )
             result = exchange_api_key_for_signer(
                 self._billing_url,
@@ -149,6 +155,6 @@ class SignerTokenProvider:
 
         raise LivepeerGatewayError(
             "SignerTokenProvider requires billing_url+api_key "
-            "(client_id optional for app_*.pmth_* keys; m2m_client_id+external_user_id for pmth_cs_*) "
+            "(client_id optional for app_*_* keys; m2m_client_id+external_user_id for pmth_cs_*) "
             "or oidc_base_url"
         )
